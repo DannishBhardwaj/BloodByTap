@@ -1,0 +1,24 @@
+
+> bloodbytap-frontend@1.0.0 lint
+> eslint src --ext js,jsx --report-unused-disable-directives --max-warnings 0
+
+
+C:\Users\antar\OneDrive\Desktop\BloodByTapBackend\frontend\src\pages\CreateAlert.jsx
+   12:11  error  'user' is assigned a value but never used                        no-unused-vars
+  194:50  error  `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`  react/no-unescaped-entities
+
+C:\Users\antar\OneDrive\Desktop\BloodByTapBackend\frontend\src\pages\DonorDashboard.jsx
+  11:11  error  'user' is assigned a value but never used  no-unused-vars
+
+C:\Users\antar\OneDrive\Desktop\BloodByTapBackend\frontend\src\pages\EmergencyDetail.jsx
+  48:9  error  'isMyEmergency' is assigned a value but never used  no-unused-vars
+
+C:\Users\antar\OneDrive\Desktop\BloodByTapBackend\frontend\src\pages\Login.jsx
+  88:16  error  `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`  react/no-unescaped-entities
+
+C:\Users\antar\OneDrive\Desktop\BloodByTapBackend\frontend\src\pages\Register.jsx
+   92:13  error  'confirmPassword' is assigned a value but never used  no-unused-vars
+  377:14  error  Unknown property 'jsx' found                          react/no-unknown-property
+
+✖ 7 problems (7 errors, 0 warnings)
+
