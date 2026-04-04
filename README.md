@@ -62,7 +62,7 @@ BloodByTap/
 ### 1. Clone
 
 ```bash
-git clone https://github.com/DannishBhardwaj/BloodByTap.git
+git clone <your-new-repository-url>
 cd BloodByTap
 ```
 

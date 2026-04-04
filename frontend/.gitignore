@@ -1,25 +1,22 @@
 # Dependencies
 node_modules/
-package-lock.json
+
+# Environment files
+.env
+.env.*
 
 # Build output
 dist/
 build/
 
-# Environment variables
-.env
-.env.local
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
 # Logs
 *.log
 npm-debug.log*
 
-# OS
+# OS and editor files
 .DS_Store
 Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
