@@ -3,6 +3,7 @@ import authReducer from './slices/authSlice'
 import alertReducer from './slices/alertSlice'
 import emergencyReducer from './slices/emergencySlice'
 import userReducer from './slices/userSlice'
+import liveAlertReducer from './slices/liveAlertSlice'
 
 export const store = configureStore({
   reducer: {
@@ -10,6 +11,7 @@ export const store = configureStore({
     alerts: alertReducer,
     emergencies: emergencyReducer,
     user: userReducer,
+    liveAlerts: liveAlertReducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({

@@ -4,6 +4,8 @@ const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
 const { authenticate } = require('../middleware/auth');
 const { geocodeAddress } = require('../utils/geocoding');
+const { toGeoJSONPoint } = require('../utils/geojson');
+const { upsertDonorFromUser } = require('../services/donorSyncService');
 
 const router = express.Router();
 
@@ -21,11 +23,7 @@ const generateToken = (userId) => {
 // @route   POST /api/auth/register
 // @desc    Register a new user (donor or institution)
 // @access  Public
-router.post('/register', [
-  body('email').isEmail().normalizeEmail(),
-  body('password').isLength({ min: 6 }),
-  body('role').isIn(['donor', 'institution'])
-], async (req, res) => {
+const registerHandler = async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -69,25 +67,33 @@ router.post('/register', [
     };
 
     if (role === 'donor') {
+      const point = toGeoJSONPoint(coordinates || safeAddress.coordinates);
       userData.donorProfile = {
         ...safeProfile,
         address: {
           ...safeAddress,
           coordinates: coordinates || safeAddress.coordinates
-        }
+        },
+        location: point || safeProfile.location
       };
     } else {
+      const point = toGeoJSONPoint(coordinates || safeAddress.coordinates);
       userData.institutionProfile = {
         ...safeProfile,
         address: {
           ...safeAddress,
           coordinates: coordinates || safeAddress.coordinates
-        }
+        },
+        location: point || safeProfile.location
       };
     }
 
     const user = new User(userData);
     await user.save();
+
+    if (role === 'donor') {
+      await upsertDonorFromUser(user);
+    }
 
     const token = generateToken(user._id);
 
@@ -104,15 +110,24 @@ router.post('/register', [
     console.error('Registration error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
-});
+};
+
+router.post('/register', [
+  body('email').isEmail().normalizeEmail(),
+  body('password').isLength({ min: 6 }),
+  body('role').isIn(['donor', 'institution'])
+], registerHandler);
+
+router.post('/signup', [
+  body('email').isEmail().normalizeEmail(),
+  body('password').isLength({ min: 6 }),
+  body('role').isIn(['donor', 'institution'])
+], registerHandler);
 
 // @route   POST /api/auth/login
 // @desc    Login user
 // @access  Public
-router.post('/login', [
-  body('email').isEmail().normalizeEmail(),
-  body('password').exists()
-], async (req, res) => {
+const loginHandler = async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -153,7 +168,17 @@ router.post('/login', [
     console.error('Login error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
-});
+};
+
+router.post('/login', [
+  body('email').isEmail().normalizeEmail(),
+  body('password').exists()
+], loginHandler);
+
+router.post('/signin', [
+  body('email').isEmail().normalizeEmail(),
+  body('password').exists()
+], loginHandler);
 
 // @route   GET /api/auth/me
 // @desc    Get current user

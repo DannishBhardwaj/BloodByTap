@@ -4,13 +4,14 @@ import { useNavigate } from 'react-router-dom'
 import { createAlert } from '../store/slices/alertSlice'
 import { getProfile } from '../store/slices/userSlice'
 import { toast } from 'react-toastify'
-import { FaArrowLeft } from 'react-icons/fa'
+import { FaArrowLeft, FaMapMarkerAlt } from 'react-icons/fa'
 
 const CreateAlert = () => {
   const dispatch = useDispatch()
   const navigate = useNavigate()
   const { profile } = useSelector((state) => state.user)
   const { loading, error } = useSelector((state) => state.alerts)
+  const [locationLoading, setLocationLoading] = useState(false)
 
   const [formData, setFormData] = useState({
     bloodType: '',
@@ -30,6 +31,51 @@ const CreateAlert = () => {
   useEffect(() => {
     dispatch(getProfile())
   }, [dispatch])
+
+  const detectCurrentLocation = (silent = false) => {
+    if (!navigator.geolocation) {
+      if (!silent) {
+        toast.error('Geolocation is not supported by your browser')
+      }
+      return
+    }
+
+    setLocationLoading(true)
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setFormData((prev) => ({
+          ...prev,
+          location: {
+            ...prev.location,
+            coordinates: {
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+            },
+          },
+        }))
+
+        setLocationLoading(false)
+        if (!silent) {
+          toast.success('Current location captured')
+        }
+      },
+      () => {
+        setLocationLoading(false)
+        if (!silent) {
+          toast.warning('Could not detect current location. You can still continue using address fallback.')
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 10000,
+      }
+    )
+  }
+
+  useEffect(() => {
+    detectCurrentLocation(true)
+  }, [])
 
   useEffect(() => {
     if (profile?.institutionProfile?.address) {
@@ -83,16 +129,32 @@ const CreateAlert = () => {
   const handleSubmit = async (e) => {
     e.preventDefault()
 
-    if (!formData.location.coordinates && !formData.location.address) {
+    const institutionAddress = profile?.institutionProfile?.address
+    const fallbackLocation = {
+      address: [
+        institutionAddress?.street,
+        institutionAddress?.city,
+        institutionAddress?.state,
+      ]
+        .filter(Boolean)
+        .join(', '),
+      coordinates: institutionAddress?.coordinates || null,
+    }
+
+    const effectiveLocation = formData.location.coordinates
+      ? formData.location
+      : (formData.location.address?.trim() ? formData.location : fallbackLocation)
+
+    if (!effectiveLocation.coordinates && !effectiveLocation.address) {
       toast.error('Please provide location information')
       return
     }
 
     const submitData = {
       ...formData,
-      location: formData.location.coordinates
-        ? formData.location
-        : { address: formData.location.address },
+      location: effectiveLocation.coordinates
+        ? effectiveLocation
+        : { address: effectiveLocation.address },
     }
 
     const result = await dispatch(createAlert(submitData))
@@ -184,14 +246,36 @@ const CreateAlert = () => {
               onChange={(e) =>
                 setFormData({
                   ...formData,
-                  location: { ...formData.location, address: e.target.value },
+                  location: {
+                    ...formData.location,
+                    address: e.target.value,
+                    // Clear inherited coordinates when address is manually edited.
+                    coordinates: null,
+                  },
                 })
               }
-              placeholder="Address (will use institution address if left empty)"
+              placeholder="Optional address fallback (GPS coordinates are preferred)"
             />
             <small className="text-secondary">
-              Leave empty to use your institution&apos;s registered address
+              GPS location is preferred for emergency speed. Address is optional fallback.
             </small>
+
+            <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => detectCurrentLocation(false)}
+                disabled={locationLoading || loading}
+              >
+                <FaMapMarkerAlt /> {locationLoading ? 'Detecting...' : 'Use Current Location'}
+              </button>
+
+              {formData.location.coordinates && (
+                <span className="text-secondary" style={{ fontSize: '0.8rem' }}>
+                  Location ready: {formData.location.coordinates.latitude.toFixed(5)}, {formData.location.coordinates.longitude.toFixed(5)}
+                </span>
+              )}
+            </div>
           </div>
 
           <h3 style={{ marginTop: '2rem', marginBottom: '1rem' }}>Age Requirements</h3>

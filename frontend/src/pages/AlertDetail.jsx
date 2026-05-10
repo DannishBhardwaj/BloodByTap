@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useDispatch, useSelector } from 'react-redux'
-import { getAlertById, expandRadius, respondToAlert, fulfillAlert } from '../store/slices/alertSlice'
+import { getAlertById, respondToAlert, fulfillAlert } from '../store/slices/alertSlice'
 import { formatDistanceToNow } from 'date-fns'
 import { toast } from 'react-toastify'
 import { FaArrowLeft, FaTint, FaMapMarkerAlt, FaUsers, FaCheckCircle } from 'react-icons/fa'
@@ -16,13 +16,6 @@ const AlertDetail = () => {
   useEffect(() => {
     dispatch(getAlertById(id))
   }, [dispatch, id])
-
-  const handleExpandRadius = async () => {
-    const result = await dispatch(expandRadius(id))
-    if (!result.error) {
-      toast.success('Radius expanded. Searching for more donors...')
-    }
-  }
 
   const handleRespond = async (response) => {
     const result = await dispatch(respondToAlert({ id, response }))
@@ -54,6 +47,7 @@ const AlertDetail = () => {
   const isInstitution = user?.role === 'institution'
   const isDonor = user?.role === 'donor'
   const isMyAlert = currentAlert.institutionId?._id === user?.id
+  const inProgressStatuses = ['active', 'ongoing', 'in-process']
   const myResponse = currentAlert.matchedDonors?.find(
     (m) => m.donorId?._id === user?.id
   )
@@ -85,7 +79,7 @@ const AlertDetail = () => {
           </div>
           <div className="detail-row">
             <strong>Status:</strong>{' '}
-            <span className={`badge badge-${currentAlert.status === 'active' ? 'success' : 'info'}`}>
+            <span className={`badge badge-${inProgressStatuses.includes(currentAlert.status) ? 'success' : 'info'}`}>
               {currentAlert.status}
             </span>
           </div>
@@ -106,15 +100,10 @@ const AlertDetail = () => {
           </div>
         </div>
 
-        {isInstitution && isMyAlert && currentAlert.status === 'active' && (
+        {isInstitution && isMyAlert && inProgressStatuses.includes(currentAlert.status) && (
           <div className="alert-actions">
-            {currentAlert.currentRadius < currentAlert.maxRadius && (
-              <button onClick={handleExpandRadius} className="btn btn-secondary">
-                Expand Search Radius (+500m)
-              </button>
-            )}
             <button onClick={handleFulfill} className="btn btn-success">
-              <FaCheckCircle /> Mark as Fulfilled
+              <FaCheckCircle /> Mark as Complete
             </button>
           </div>
         )}
@@ -160,7 +149,7 @@ const AlertDetail = () => {
                     <strong>Age:</strong> {match.donorId?.donorProfile?.age || 'N/A'}
                   </div>
                   <div>
-                    <strong>Distance:</strong> {(match.distance / 1000).toFixed(2)} KM
+                    <strong>Distance:</strong> {typeof match.distance === 'number' ? `${(match.distance / 1000).toFixed(2)} KM` : 'N/A'}
                   </div>
                   <div>
                     <strong>Status:</strong>{' '}

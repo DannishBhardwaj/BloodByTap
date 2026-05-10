@@ -9,6 +9,7 @@ React frontend application for BloodByTap - Emergency Blood Bank Management Syst
 - **Institution Dashboard**: Create and manage alerts, respond to emergencies
 - **Alert Management**: Create alerts with location-based donor matching
 - **Emergency Reporting**: Report road emergencies with automatic institution notifications
+- **GPS-First Location**: Capture live coordinates first, use address only as fallback
 - **Profile Management**: Update user profiles and availability status
 - **Real-time Updates**: Redux state management for seamless data flow
 
@@ -43,7 +44,7 @@ cp .env.example .env
 Edit `.env` and add:
 ```
 VITE_API_BASE_URL=http://localhost:5000/api
-VITE_GOOGLE_MAPS_API_KEY=your-google-maps-api-key
+VITE_SOCKET_URL=http://localhost:5000
 ```
 
 4. Start development server:
@@ -94,6 +95,16 @@ frontend/
 - `npm run build` - Build for production
 - `npm run preview` - Preview production build
 - `npm run lint` - Run ESLint
+- `npm run test` - Run Jest tests
+- `npm run test:e2e` - Run Jest tests serially
+
+## Testing
+
+Run the frontend test suite:
+
+```bash
+npm test
+```
 
 ## Features Overview
 
@@ -121,12 +132,14 @@ frontend/
 - Progressive radius expansion
 - Real-time notifications
 - Status tracking (active, fulfilled, cancelled)
+- GPS-first alert location capture from browser geolocation
 
 ### Emergency System
 - Report emergencies with location
 - Automatic institution notifications
 - Emergency acknowledgment workflow
 - Status management
+- Coordinates-first submission to reduce geocoding wait/failure risk
 
 ## State Management
 
@@ -154,7 +167,7 @@ All API calls are centralized in `src/services/api.js` using Axios with:
 ## Environment Variables
 
 - `VITE_API_BASE_URL` - Backend API base URL
-- `VITE_GOOGLE_MAPS_API_KEY` - Google Maps API key (for future map integration)
+- `VITE_SOCKET_URL` - Socket.io server URL for live donor emergency alerts
 
 ## Development Notes
 
@@ -162,6 +175,7 @@ All API calls are centralized in `src/services/api.js` using Axios with:
 - Hot module replacement (HMR) enabled
 - Proxy configuration for API calls in development
 - Token stored in localStorage for persistence
+- Geolocation permissions are required for best emergency performance
 
 ## Production Build
 

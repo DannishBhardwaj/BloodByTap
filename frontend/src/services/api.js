@@ -73,4 +73,10 @@ export const emergencyAPI = {
   handleEmergency: (id) => api.put(`/emergencies/${id}/handle`),
 }
 
+// Blood Request API
+export const bloodRequestAPI = {
+  respondToRequest: (id, response) => api.post(`/blood-requests/${id}/respond`, { response }),
+  completeRequest: (id, data) => api.put(`/blood-requests/${id}/complete`, data),
+}
+
 export default api

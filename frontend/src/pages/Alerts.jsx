@@ -9,6 +9,7 @@ const Alerts = () => {
   const dispatch = useDispatch()
   const { alerts, loading } = useSelector((state) => state.alerts)
   const { user } = useSelector((state) => state.auth)
+  const inProgressStatuses = ['active', 'ongoing', 'in-process']
 
   useEffect(() => {
     if (user?.role === 'institution') {
@@ -54,7 +55,7 @@ const Alerts = () => {
                   <span className={`badge badge-${alert.urgency === 'critical' ? 'danger' : 'warning'}`}>
                     {alert.urgency}
                   </span>
-                  <span className={`badge badge-${alert.status === 'active' ? 'success' : 'info'}`}>
+                  <span className={`badge badge-${inProgressStatuses.includes(alert.status) ? 'success' : 'info'}`}>
                     {alert.status}
                   </span>
                 </div>

@@ -16,7 +16,8 @@ BloodByTap is a full-stack emergency blood coordination platform that connects d
 - Nearby donor matching using geolocation and blood compatibility
 - Emergency reporting with nearby institution notifications
 - Progressive search radius expansion for unresolved alerts
-- FCM support for real-time notifications
+- Socket.io real-time donor alerting
+- GPS-first location capture for emergency speed (address geocoding used only as fallback)
 
 ## Tech Stack
 
@@ -26,7 +27,7 @@ BloodByTap is a full-stack emergency blood coordination platform that connects d
 - Express
 - MongoDB + Mongoose
 - JWT authentication
-- Firebase Admin SDK
+- Socket.io
 - Geolib
 - Express Validator
 
@@ -92,17 +93,25 @@ NODE_ENV=development
 MONGODB_URI=mongodb://localhost:27017/bloodbytap
 JWT_SECRET=your-secret
 JWT_EXPIRE=7d
-FIREBASE_PROJECT_ID=your-project-id
-FIREBASE_PRIVATE_KEY=your-private-key
-FIREBASE_CLIENT_EMAIL=your-client-email
-GOOGLE_MAPS_API_KEY=your-google-maps-api-key
+GEOCODING_BASE_URL=https://nominatim.openstreetmap.org
+GEOCODING_USER_AGENT=BloodByTap/1.0 (contact: admin@example.com)
+GEOCODING_CONTACT_EMAIL=admin@example.com
+GEOCODING_MIN_INTERVAL_MS=1100
+GEOCODING_MAX_RETRIES=2
+GEOCODING_TIMEOUT_MS=10000
+GEOCODING_CACHE_TTL_MS=86400000
+GEOCODING_CACHE_MAX_SIZE=1000
 ```
+
+Location behavior:
+- The frontend first captures live coordinates from device geolocation when creating alerts or reporting emergencies.
+- Address-based geocoding is used only if live coordinates are unavailable.
 
 Frontend environment file in `frontend/.env`:
 
 ```env
 VITE_API_BASE_URL=http://localhost:5000/api
-VITE_GOOGLE_MAPS_API_KEY=your-google-maps-api-key
+VITE_SOCKET_URL=http://localhost:5000
 ```
 
 ## Run the App
@@ -121,6 +130,33 @@ npm run dev
 ```
 
 Frontend runs on Vite default port and connects to backend API via `VITE_API_BASE_URL`.
+
+After migration, run donor sync once:
+
+```bash
+npm run backfill:donors
+```
+
+## Tests
+
+Backend tests (Jest + Supertest):
+
+```bash
+npm test
+```
+
+Frontend tests (Jest + Testing Library):
+
+```bash
+cd frontend
+npm test
+```
+
+For serial runs:
+
+```bash
+npm run test:e2e
+```
 
 ## API Overview
 

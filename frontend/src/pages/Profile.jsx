@@ -3,6 +3,7 @@ import { useDispatch, useSelector } from 'react-redux'
 import { updateProfile, updateAvailability, getProfile } from '../store/slices/userSlice'
 import { toast } from 'react-toastify'
 import { FaEdit, FaCheck, FaTimes } from 'react-icons/fa'
+import { COUNTRY_OPTIONS, STATE_OPTIONS_BY_COUNTRY } from '../constants/locationOptions'
 
 const Profile = () => {
   const dispatch = useDispatch()
@@ -11,6 +12,8 @@ const Profile = () => {
 
   const [isEditing, setIsEditing] = useState(false)
   const [formData, setFormData] = useState({})
+  const selectedCountry = formData.address?.country || ''
+  const stateOptions = STATE_OPTIONS_BY_COUNTRY[selectedCountry] || []
 
   useEffect(() => {
     dispatch(getProfile())
@@ -46,6 +49,19 @@ const Profile = () => {
 
     if (name.startsWith('address.')) {
       const addressField = name.split('.')[1]
+
+      if (addressField === 'country') {
+        setFormData({
+          ...formData,
+          address: {
+            ...formData.address,
+            country: value,
+            state: '',
+          },
+        })
+        return
+      }
+
       setFormData({
         ...formData,
         address: {
@@ -310,15 +326,34 @@ const Profile = () => {
 
           <div className="form-group">
             <label className="form-label">State</label>
-            <input
-              type="text"
-              name="address.state"
-              className="form-input"
-              value={formData.address?.state || ''}
-              onChange={handleChange}
-              disabled={!isEditing}
-              required
-            />
+            {stateOptions.length > 0 ? (
+              <select
+                name="address.state"
+                className="form-select"
+                value={formData.address?.state || ''}
+                onChange={handleChange}
+                disabled={!isEditing}
+                required
+              >
+                <option value="">Select state</option>
+                {stateOptions.map((stateName) => (
+                  <option key={stateName} value={stateName}>
+                    {stateName}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                name="address.state"
+                className="form-input"
+                value={formData.address?.state || ''}
+                onChange={handleChange}
+                disabled={!isEditing}
+                required
+                placeholder="Enter state/region"
+              />
+            )}
           </div>
 
           <div className="form-group">
@@ -336,15 +371,21 @@ const Profile = () => {
 
           <div className="form-group">
             <label className="form-label">Country</label>
-            <input
-              type="text"
+            <select
               name="address.country"
-              className="form-input"
+              className="form-select"
               value={formData.address?.country || ''}
               onChange={handleChange}
               disabled={!isEditing}
               required
-            />
+            >
+              <option value="">Select country</option>
+              {COUNTRY_OPTIONS.map((countryName) => (
+                <option key={countryName} value={countryName}>
+                  {countryName}
+                </option>
+              ))}
+            </select>
           </div>
 
           {isEditing && (

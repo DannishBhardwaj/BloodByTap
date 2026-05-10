@@ -3,6 +3,7 @@ import { useDispatch, useSelector } from 'react-redux'
 import { useNavigate, Link } from 'react-router-dom'
 import { register, clearError } from '../store/slices/authSlice'
 import { toast } from 'react-toastify'
+import { COUNTRY_OPTIONS, STATE_OPTIONS_BY_COUNTRY } from '../constants/locationOptions'
 
 const Register = () => {
   const dispatch = useDispatch()
@@ -29,6 +30,9 @@ const Register = () => {
       },
     },
   })
+
+  const selectedCountry = formData.profile.address.country
+  const stateOptions = STATE_OPTIONS_BY_COUNTRY[selectedCountry] || []
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -59,6 +63,22 @@ const Register = () => {
 
     if (name.startsWith('address.')) {
       const addressField = name.split('.')[1]
+
+      if (addressField === 'country') {
+        setFormData({
+          ...formData,
+          profile: {
+            ...formData.profile,
+            address: {
+              ...formData.profile.address,
+              country: value,
+              state: '',
+            },
+          },
+        })
+        return
+      }
+
       setFormData({
         ...formData,
         profile: {
@@ -324,14 +344,32 @@ const Register = () => {
 
           <div className="form-group">
             <label className="form-label">State</label>
-            <input
-              type="text"
-              name="address.state"
-              className="form-input"
-              value={formData.profile.address.state}
-              onChange={handleChange}
-              required
-            />
+            {stateOptions.length > 0 ? (
+              <select
+                name="address.state"
+                className="form-select"
+                value={formData.profile.address.state}
+                onChange={handleChange}
+                required
+              >
+                <option value="">Select state</option>
+                {stateOptions.map((stateName) => (
+                  <option key={stateName} value={stateName}>
+                    {stateName}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                name="address.state"
+                className="form-input"
+                value={formData.profile.address.state}
+                onChange={handleChange}
+                required
+                placeholder="Enter state/region"
+              />
+            )}
           </div>
 
           <div className="form-group">
@@ -348,14 +386,20 @@ const Register = () => {
 
           <div className="form-group">
             <label className="form-label">Country</label>
-            <input
-              type="text"
+            <select
               name="address.country"
-              className="form-input"
+              className="form-select"
               value={formData.profile.address.country}
               onChange={handleChange}
               required
-            />
+            >
+              <option value="">Select country</option>
+              {COUNTRY_OPTIONS.map((countryName) => (
+                <option key={countryName} value={countryName}>
+                  {countryName}
+                </option>
+              ))}
+            </select>
           </div>
 
           <button

@@ -1,63 +1,64 @@
 const mongoose = require('mongoose');
 
-const alertSchema = new mongoose.Schema({
+const bloodRequestSchema = new mongoose.Schema({
   institutionId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
+  },
+  hospitalName: {
+    type: String,
+    required: true,
+    trim: true
   },
   bloodType: {
     type: String,
     enum: ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'],
     required: true
   },
-  urgency: {
-    type: String,
-    enum: ['critical', 'high', 'medium'],
-    default: 'high'
-  },
   quantity: {
     type: Number,
     required: true,
     min: 1
   },
-  ageRequirement: {
-    min: {
-      type: Number,
-      default: 18
-    },
-    max: {
-      type: Number,
-      default: 65
-    }
+  urgency: {
+    type: String,
+    enum: ['critical', 'high', 'medium'],
+    default: 'high'
   },
-  description: String,
+  notes: {
+    type: String,
+    trim: true
+  },
+  radiusMeters: {
+    type: Number,
+    default: 5000,
+    min: 500,
+    max: 50000
+  },
   location: {
-    address: String,
+    type: {
+      type: String,
+      enum: ['Point'],
+      required: true
+    },
     coordinates: {
-      latitude: Number,
-      longitude: Number
-    }
+      type: [Number],
+      required: true
+    },
+    address: String
   },
   status: {
     type: String,
     enum: ['ongoing', 'in-process', 'complete', 'cancelled', 'expired', 'active', 'fulfilled'],
     default: 'ongoing'
   },
-  currentRadius: {
-    type: Number,
-    default: 2000 // Starting radius in meters (2KM)
-  },
-  maxRadius: {
-    type: Number,
-    default: 5000 // Maximum radius in meters (5KM)
-  },
-  radiusIncrement: {
-    type: Number,
-    default: 500 // Increment in meters
-  },
   matchedDonors: [{
     donorId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Donor'
+    },
+    userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
     },
@@ -74,19 +75,12 @@ const alertSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   },
-  fulfilledAt: Date,
-  expiresAt: {
-    type: Date,
-    default: function() {
-      return new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
-    }
-  }
+  fulfilledAt: Date
 }, {
   timestamps: true
 });
 
-// Index for geospatial queries
-alertSchema.index({ 'location.coordinates': '2dsphere' });
-alertSchema.index({ status: 1, expiresAt: 1 });
+bloodRequestSchema.index({ location: '2dsphere' });
+bloodRequestSchema.index({ status: 1, createdAt: -1 });
 
-module.exports = mongoose.model('Alert', alertSchema);
+module.exports = mongoose.model('BloodRequest', bloodRequestSchema);

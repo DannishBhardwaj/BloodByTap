@@ -1,9 +1,13 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
+import { toast } from 'react-toastify'
 import { getCurrentUser } from './store/slices/authSlice'
+import { getAlerts } from './store/slices/alertSlice'
+import { pushLiveAlert } from './store/slices/liveAlertSlice'
 import ProtectedRoute from './components/ProtectedRoute'
 import Layout from './components/Layout'
+import { connectSocket, disconnectSocket } from './services/socket'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import DonorDashboard from './pages/DonorDashboard'
@@ -18,13 +22,49 @@ import Profile from './pages/Profile'
 
 function App() {
   const dispatch = useDispatch()
-  const { isAuthenticated, token } = useSelector((state) => state.auth)
+  const { isAuthenticated, token, user } = useSelector((state) => state.auth)
 
   useEffect(() => {
     if (token && !isAuthenticated) {
       dispatch(getCurrentUser())
     }
   }, [dispatch, token, isAuthenticated])
+
+  useEffect(() => {
+    if (!isAuthenticated || !token || user?.role !== 'donor') {
+      disconnectSocket()
+      return undefined
+    }
+
+    const socket = connectSocket(token)
+    if (!socket) {
+      return undefined
+    }
+
+    const handleEmergencyAlert = (payload) => {
+      dispatch(pushLiveAlert(payload))
+      dispatch(getAlerts({ status: 'active' }))
+
+      const hospital = payload?.hospitalName || 'a nearby hospital'
+      const bloodType = payload?.bloodType || 'requested blood'
+      toast.error(`New emergency alert: ${bloodType} needed at ${hospital}`, {
+        autoClose: 5000,
+      })
+    }
+
+    socket.on('new-emergency-alert', handleEmergencyAlert)
+
+    socket.on('connect_error', () => {
+      toast.warn('Live alert connection interrupted. Retrying automatically...', {
+        autoClose: 3500,
+      })
+    })
+
+    return () => {
+      socket.off('new-emergency-alert', handleEmergencyAlert)
+      socket.off('connect_error')
+    }
+  }, [dispatch, isAuthenticated, token, user?.role])
 
   return (
     <Routes>

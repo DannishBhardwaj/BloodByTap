@@ -40,6 +40,15 @@ const userSchema = new mongoose.Schema({
         longitude: Number
       }
     },
+    location: {
+      type: {
+        type: String,
+        enum: ['Point']
+      },
+      coordinates: {
+        type: [Number]
+      }
+    },
     healthStatus: {
       type: String,
       enum: ['excellent', 'good', 'fair', 'poor'],
@@ -69,6 +78,15 @@ const userSchema = new mongoose.Schema({
       coordinates: {
         latitude: Number,
         longitude: Number
+      }
+    },
+    location: {
+      type: {
+        type: String,
+        enum: ['Point']
+      },
+      coordinates: {
+        type: [Number]
       }
     },
     licenseNumber: String,
@@ -107,11 +125,19 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
 
 // Method to get user location coordinates
 userSchema.methods.getCoordinates = function() {
-  if (this.role === 'donor') {
-    return this.donorProfile?.address?.coordinates;
-  } else {
-    return this.institutionProfile?.address?.coordinates;
+  const profile = this.role === 'donor' ? this.donorProfile : this.institutionProfile;
+
+  if (profile?.location?.type === 'Point' && Array.isArray(profile.location.coordinates)) {
+    const [longitude, latitude] = profile.location.coordinates;
+    if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+      return { latitude, longitude };
+    }
   }
+
+  return profile?.address?.coordinates;
 };
+
+userSchema.index({ 'donorProfile.location': '2dsphere' });
+userSchema.index({ 'institutionProfile.location': '2dsphere' });
 
 module.exports = mongoose.model('User', userSchema);

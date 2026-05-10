@@ -1,340 +1,149 @@
-# BloodByTap API Documentation
+# BloodByTap API Documentation (MERN Migration)
 
 ## Base URL
-```
-http://localhost:5000/api
-```
+`http://localhost:5000/api`
 
 ## Authentication
+All protected endpoints require:
+`Authorization: Bearer <jwt-token>`
 
-Most endpoints require authentication. Include the JWT token in the Authorization header:
-```
-Authorization: Bearer <your-jwt-token>
-```
+## Auth Endpoints
 
----
+### POST /auth/signup
+Creates a donor or institution user.
 
-## Authentication Endpoints
-
-### Register User
-**POST** `/auth/register`
-
-Register a new user (donor or institution).
-
-**Request Body:**
+Body:
 ```json
 {
-  "email": "user@example.com",
+  "email": "hospital@example.com",
   "password": "password123",
-  "role": "donor", // or "institution"
+  "role": "institution",
   "profile": {
-    // For donors:
-    "firstName": "John",
-    "lastName": "Doe",
-    "phone": "+1234567890",
-    "bloodType": "O+",
-    "age": 25,
-    "address": {
-      "street": "123 Main St",
-      "city": "New York",
-      "state": "NY",
-      "zipCode": "10001",
-      "country": "USA"
-    },
-    "healthStatus": "good",
-    "lastDonationDate": "2024-01-15"
-    
-    // For institutions:
     "name": "City Hospital",
-    "type": "hospital",
-    "phone": "+1234567890",
     "address": {
-      "street": "456 Medical Ave",
-      "city": "New York",
-      "state": "NY",
-      "zipCode": "10002",
+      "street": "123 Main",
+      "city": "Boston",
+      "state": "MA",
+      "zipCode": "02108",
       "country": "USA"
+    }
+  }
+}
+```
+
+### POST /auth/signin
+Logs in and returns JWT.
+
+### Backward-Compatible Auth Routes
+- `POST /auth/register` (alias of signup)
+- `POST /auth/login` (alias of signin)
+- `GET /auth/me` (protected)
+
+## Location Strategy (Emergency Reliability)
+
+- Primary mode: send `location.coordinates` from browser/device geolocation.
+- Fallback mode: send `location.address` only when coordinates are unavailable.
+- Recommended coordinate format:
+
+```json
+{
+  "location": {
+    "coordinates": {
+      "latitude": 19.2183,
+      "longitude": 73.0867
     },
-    "licenseNumber": "LIC123456",
-    "contactPerson": "Dr. Smith"
+    "address": "optional human-readable address"
   }
 }
 ```
 
-**Response:**
-```json
-{
-  "message": "User registered successfully",
-  "token": "jwt-token-here",
-  "user": {
-    "id": "user-id",
-    "email": "user@example.com",
-    "role": "donor"
-  }
-}
-```
+### Endpoints using this strategy
+- `POST /alerts`
+- `POST /emergencies`
+- `POST /request-blood`
+- `POST /blood-requests/request-blood`
 
-### Login
-**POST** `/auth/login`
+## Blood Request Endpoints
 
-**Request Body:**
-```json
-{
-  "email": "user@example.com",
-  "password": "password123"
-}
-```
+### POST /request-blood (protected)
+Sensitive route protected by `authMiddleware` + institution role check.
 
-**Response:**
-```json
-{
-  "message": "Login successful",
-  "token": "jwt-token-here",
-  "user": {
-    "id": "user-id",
-    "email": "user@example.com",
-    "role": "donor"
-  }
-}
-```
+### POST /blood-requests/request-blood (protected)
+Creates a blood request and triggers Socket.io donor-targeted alerts.
 
-### Get Current User
-**GET** `/auth/me`
-
-**Response:**
-```json
-{
-  "user": {
-    "_id": "user-id",
-    "email": "user@example.com",
-    "role": "donor",
-    "donorProfile": { ... }
-  }
-}
-```
-
----
-
-## User Endpoints
-
-### Get Profile
-**GET** `/users/profile`
-
-**Response:**
-```json
-{
-  "user": {
-    "_id": "user-id",
-    "email": "user@example.com",
-    "role": "donor",
-    "donorProfile": { ... }
-  }
-}
-```
-
-### Update Profile
-**PUT** `/users/profile`
-
-**Request Body:**
-```json
-{
-  "profile": {
-    "firstName": "John",
-    "lastName": "Doe",
-    "bloodType": "O+",
-    "age": 26,
-    "address": { ... }
-  }
-}
-```
-
-### Update FCM Token
-**PUT** `/users/fcm-token`
-
-**Request Body:**
-```json
-{
-  "fcmToken": "firebase-cloud-messaging-token"
-}
-```
-
-### Update Availability (Donor Only)
-**PUT** `/users/availability`
-
-**Request Body:**
-```json
-{
-  "isAvailable": true
-}
-```
-
-### Get Nearby Donors (Institution Only)
-**GET** `/users/donors/nearby?latitude=40.7128&longitude=-74.0060&radius=2000`
-
-**Query Parameters:**
-- `latitude` (required): Latitude coordinate
-- `longitude` (required): Longitude coordinate
-- `radius` (optional): Search radius in meters (default: 2000)
-
----
-
-## Alert Endpoints
-
-### Create Alert (Institution Only)
-**POST** `/alerts`
-
-**Request Body:**
+Body:
 ```json
 {
   "bloodType": "O+",
-  "quantity": 2,
-  "urgency": "high",
-  "description": "Emergency surgery requiring blood",
-  "ageRequirement": {
-    "min": 18,
-    "max": 65
-  },
-  "location": {
-    "address": "Custom location address",
-    "coordinates": {
-      "latitude": 40.7128,
-      "longitude": -74.0060
-    }
-  }
-}
-```
-
-**Response:**
-```json
-{
-  "message": "Alert created successfully",
-  "alert": {
-    "_id": "alert-id",
-    "institutionId": "institution-id",
-    "bloodType": "O+",
-    "status": "active",
-    "currentRadius": 2000,
-    "matchedDonors": [ ... ]
-  }
-}
-```
-
-### Get All Alerts
-**GET** `/alerts?status=active&bloodType=O+&institutionId=id`
-
-**Query Parameters:**
-- `status`: Filter by status (active, fulfilled, cancelled, expired)
-- `bloodType`: Filter by blood type
-- `institutionId`: Filter by institution
-
-### Get Alert by ID
-**GET** `/alerts/:id`
-
-### Expand Alert Radius
-**POST** `/alerts/:id/expand-radius`
-
-Expands the search radius by 500m if no donors found.
-
-### Respond to Alert (Donor)
-**POST** `/alerts/:id/respond`
-
-**Request Body:**
-```json
-{
-  "response": "accepted" // or "rejected"
-}
-```
-
-### Fulfill Alert (Institution)
-**PUT** `/alerts/:id/fulfill`
-
-**Request Body:**
-```json
-{
-  "fulfilledBy": "donor-id" // optional
-}
-```
-
----
-
-## Emergency Endpoints
-
-### Report Emergency
-**POST** `/emergencies`
-
-**Request Body:**
-```json
-{
-  "bloodType": "O+",
-  "quantity": 1,
+  "quantity": 3,
   "urgency": "critical",
-  "description": "Road accident, immediate blood needed",
+  "radiusMeters": 5000,
+  "hospitalName": "City Hospital",
   "location": {
-    "address": "Highway 101, Mile Marker 45",
+    "address": "456 Medical Ave, Boston",
     "coordinates": {
-      "latitude": 40.7128,
-      "longitude": -74.0060
+      "latitude": 42.3601,
+      "longitude": -71.0589
     }
   }
 }
 ```
 
-**Response:**
-```json
-{
-  "message": "Emergency reported successfully. Nearby institutions have been notified.",
-  "emergency": {
-    "_id": "emergency-id",
-    "status": "pending",
-    "notifiedInstitutions": [ ... ]
-  }
+Response includes:
+- persisted `bloodRequest`
+- `nearbyDonorsFound`
+- socket delivery stats
+
+### GET /blood-requests (protected)
+List blood requests.
+
+### GET /blood-requests/nearby-donors (protected)
+Geospatial donor query via MongoDB `$near`.
+
+Query params:
+- `latitude` (required)
+- `longitude` (required)
+- `radius` (optional, meters, default 5000)
+- `bloodType` (optional)
+
+## MongoDB Models (Core Migration)
+
+### User
+- Stores auth identity and role.
+- Donor and institution profiles support GeoJSON points.
+
+### Donor
+- Dedicated collection for geospatial donor matching.
+- Required GeoJSON field:
+```js
+location: {
+  type: { type: String, enum: ['Point'], required: true },
+  coordinates: { type: [Number], required: true }
 }
 ```
 
-### Get All Emergencies
-**GET** `/emergencies?status=pending&reportedBy=user-id`
-
-### Get Emergency by ID
-**GET** `/emergencies/:id`
-
-### Acknowledge Emergency (Institution)
-**POST** `/emergencies/:id/acknowledge`
-
-### Handle Emergency (Institution)
-**PUT** `/emergencies/:id/handle`
-
----
-
-## Error Responses
-
-All endpoints may return error responses in the following format:
-
-```json
-{
-  "message": "Error description",
-  "error": "Detailed error message (in development mode)"
+### BloodRequest
+- Dedicated collection replacing Firebase/Firestore blood requests.
+- Required GeoJSON field:
+```js
+location: {
+  type: { type: String, enum: ['Point'], required: true },
+  coordinates: { type: [Number], required: true }
 }
 ```
 
-**Common Status Codes:**
-- `200` - Success
-- `201` - Created
-- `400` - Bad Request
-- `401` - Unauthorized
-- `403` - Forbidden
-- `404` - Not Found
-- `500` - Internal Server Error
+## Real-Time Socket Events
 
----
+### Server Broadcast Event
+`new-emergency-alert`
+
+Trigger flow:
+1. Institution creates BloodRequest.
+2. Server finds donors within radius using MongoDB geospatial query.
+3. Event is emitted only to connected donor sockets in range.
 
 ## Notes
-
-1. **Location**: Addresses are automatically geocoded using Google Maps API. You can also provide coordinates directly.
-
-2. **Radius Expansion**: Alerts start with a 2KM radius and expand by 500m increments up to 5KM if no donors are found.
-
-3. **Push Notifications**: FCM tokens must be updated via `/users/fcm-token` endpoint to receive push notifications.
-
-4. **Blood Type Matching**: The system matches exact blood types. Consider implementing compatibility logic (e.g., O- can donate to all) if needed.
-
-5. **Distance Calculation**: Uses geolib library for accurate distance calculations based on coordinates.
+- Firebase/FCM is removed from the backend runtime path.
+- Environment variables now focus on `MONGODB_URI` and `JWT_SECRET`.
+- Existing `/alerts` and `/emergencies` endpoints remain available for compatibility.
+- GPS-first submission is strongly recommended for emergency speed and lower geocoding failure risk.

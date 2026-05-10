@@ -17,7 +17,8 @@ const InstitutionDashboard = () => {
     dispatch(getEmergencies({ status: 'pending' }))
   }, [dispatch, user])
 
-  const activeAlerts = alerts.filter((a) => a.status === 'active')
+  const inProgressStatuses = ['active', 'ongoing', 'in-process']
+  const activeAlerts = alerts.filter((a) => inProgressStatuses.includes(a.status))
   const pendingEmergencies = emergencies.filter((e) => e.status === 'pending')
 
   return (

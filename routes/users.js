@@ -3,6 +3,8 @@ const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
 const { authenticate, requireDonor, requireInstitution } = require('../middleware/auth');
 const { geocodeAddress } = require('../utils/geocoding');
+const { toGeoJSONPoint } = require('../utils/geojson');
+const { upsertDonorFromUser } = require('../services/donorSyncService');
 
 const router = express.Router();
 
@@ -44,6 +46,7 @@ router.put('/profile', authenticate, async (req, res) => {
     }
 
     if (user.role === 'donor') {
+      const point = toGeoJSONPoint(coordinates || profile.address?.coordinates || user.donorProfile?.address?.coordinates);
       user.donorProfile = {
         ...user.donorProfile.toObject(),
         ...profile,
@@ -51,9 +54,13 @@ router.put('/profile', authenticate, async (req, res) => {
           ...user.donorProfile.address,
           ...profile.address,
           coordinates: coordinates || profile.address?.coordinates || user.donorProfile.address?.coordinates
-        }
+        },
+        location: point || user.donorProfile?.location
       };
+
+      await upsertDonorFromUser(user);
     } else {
+      const point = toGeoJSONPoint(coordinates || profile.address?.coordinates || user.institutionProfile?.address?.coordinates);
       user.institutionProfile = {
         ...user.institutionProfile.toObject(),
         ...profile,
@@ -61,7 +68,8 @@ router.put('/profile', authenticate, async (req, res) => {
           ...user.institutionProfile.address,
           ...profile.address,
           coordinates: coordinates || profile.address?.coordinates || user.institutionProfile.address?.coordinates
-        }
+        },
+        location: point || user.institutionProfile?.location
       };
     }
 
@@ -73,34 +81,42 @@ router.put('/profile', authenticate, async (req, res) => {
   }
 });
 
-// @route   PUT /api/users/fcm-token
-// @desc    Update FCM token for push notifications
+// @route   PUT /api/users/socket-registration
+// @desc    Optional endpoint to mark websocket preference on profile metadata
 // @access  Private
-router.put('/fcm-token', authenticate, [
-  body('fcmToken').notEmpty()
-], async (req, res) => {
+const updateSocketRegistration = async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { fcmToken } = req.body;
+    const socketEnabled = typeof req.body.socketEnabled === 'boolean'
+      ? req.body.socketEnabled
+      : Boolean(req.body.fcmToken);
     const user = await User.findById(req.user._id);
 
     if (user.role === 'donor') {
-      user.donorProfile.fcmToken = fcmToken;
+      user.donorProfile.socketEnabled = socketEnabled;
     } else {
-      user.institutionProfile.fcmToken = fcmToken;
+      user.institutionProfile.socketEnabled = socketEnabled;
     }
 
     await user.save();
-    res.json({ message: 'FCM token updated successfully' });
+    res.json({ message: 'Socket registration preference updated successfully' });
   } catch (error) {
-    console.error('Update FCM token error:', error);
+    console.error('Update socket registration error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
-});
+};
+
+router.put('/socket-registration', authenticate, [
+  body('socketEnabled').isBoolean()
+], updateSocketRegistration);
+
+router.put('/fcm-token', authenticate, [
+  body('fcmToken').notEmpty()
+], updateSocketRegistration);
 
 // @route   PUT /api/users/availability
 // @desc    Update donor availability status
@@ -119,6 +135,7 @@ router.put('/availability', authenticate, requireDonor, [
     
     user.donorProfile.isAvailable = isAvailable;
     await user.save();
+    await upsertDonorFromUser(user);
 
     res.json({ 
       message: `Availability updated to ${isAvailable ? 'available' : 'unavailable'}`,

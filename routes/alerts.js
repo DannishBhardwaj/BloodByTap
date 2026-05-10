@@ -5,9 +5,11 @@ const User = require('../models/User');
 const { authenticate, requireInstitution } = require('../middleware/auth');
 const { calculateDistance, filterByDistance } = require('../utils/location');
 const { sendAlertToDonors } = require('../services/notificationService');
+const { emitBloodRequestAlert } = require('../services/socketService');
 const { geocodeAddress } = require('../utils/geocoding');
 
 const router = express.Router();
+const IN_PROGRESS_ALERT_STATUSES = ['ongoing', 'in-process', 'active'];
 
 // @route   POST /api/alerts
 // @desc    Create a new alert
@@ -24,11 +26,8 @@ router.post('/', authenticate, requireInstitution, [
     }
 
     const institution = await User.findById(req.user._id);
-    const institutionCoords = institution.institutionProfile.address.coordinates;
-
-    if (!institutionCoords || !institutionCoords.latitude || !institutionCoords.longitude) {
-      return res.status(400).json({ message: 'Institution location not set. Please update your profile with address.' });
-    }
+    const institutionAddress = institution?.institutionProfile?.address || {};
+    const institutionCoords = institutionAddress.coordinates;
 
     const {
       bloodType,
@@ -40,11 +39,19 @@ router.post('/', authenticate, requireInstitution, [
     } = req.body;
 
     // Use custom location if provided, otherwise use institution location
-    let alertLocation = customLocation || {
-      address: institution.institutionProfile.address.street + ', ' + 
-               institution.institutionProfile.address.city,
-      coordinates: institutionCoords
-    };
+    let alertLocation = customLocation || null;
+
+    if (!alertLocation) {
+      alertLocation = {
+        address: [
+          institutionAddress.street,
+          institutionAddress.city,
+          institutionAddress.state,
+          institutionAddress.country
+        ].filter(Boolean).join(', '),
+        coordinates: institutionCoords
+      };
+    }
 
     // Geocode if address provided but no coordinates
     if (alertLocation.address && !alertLocation.coordinates) {
@@ -52,6 +59,12 @@ router.post('/', authenticate, requireInstitution, [
       if (coords) {
         alertLocation.coordinates = coords;
       }
+    }
+
+    if (!alertLocation.coordinates || !alertLocation.coordinates.latitude || !alertLocation.coordinates.longitude) {
+      return res.status(400).json({
+        message: 'Could not resolve alert location coordinates. Please update institution profile address or provide a complete alert location.'
+      });
     }
 
     // Create alert
@@ -71,7 +84,7 @@ router.post('/', authenticate, requireInstitution, [
     await alert.save();
 
     // Find and notify matching donors
-    await findAndNotifyDonors(alert);
+    await findAndNotifyDonors(alert, null, req.app.get('io'));
 
     res.status(201).json({
       message: 'Alert created successfully',
@@ -91,7 +104,19 @@ router.get('/', authenticate, async (req, res) => {
     const { status, institutionId, bloodType } = req.query;
     const query = {};
 
-    if (status) query.status = status;
+    if (req.user.role === 'donor') {
+      query['matchedDonors.donorId'] = req.user._id;
+      // Donors should only receive active/in-progress requests unless explicitly filtered.
+      if (!status) {
+        query.status = { $in: IN_PROGRESS_ALERT_STATUSES };
+      }
+    }
+
+    if (status) {
+      query.status = status === 'active'
+        ? { $in: IN_PROGRESS_ALERT_STATUSES }
+        : status;
+    }
     if (institutionId) query.institutionId = institutionId;
     if (bloodType) query.bloodType = bloodType;
 
@@ -141,7 +166,7 @@ router.post('/:id/expand-radius', authenticate, requireInstitution, async (req, 
       return res.status(403).json({ message: 'Not authorized to modify this alert' });
     }
 
-    if (alert.status !== 'active') {
+    if (!IN_PROGRESS_ALERT_STATUSES.includes(alert.status)) {
       return res.status(400).json({ message: 'Alert is not active' });
     }
 
@@ -158,7 +183,7 @@ router.post('/:id/expand-radius', authenticate, requireInstitution, async (req, 
     await alert.save();
 
     // Try to find more donors with expanded radius
-    await findAndNotifyDonors(alert, newRadius);
+    await findAndNotifyDonors(alert, newRadius, req.app.get('io'));
 
     res.json({
       message: `Radius expanded to ${newRadius}m`,
@@ -186,7 +211,7 @@ router.post('/:id/respond', authenticate, async (req, res) => {
       return res.status(404).json({ message: 'Alert not found' });
     }
 
-    if (alert.status !== 'active') {
+    if (!IN_PROGRESS_ALERT_STATUSES.includes(alert.status)) {
       return res.status(400).json({ message: 'Alert is not active' });
     }
 
@@ -201,6 +226,11 @@ router.post('/:id/respond', authenticate, async (req, res) => {
 
     donorMatch.status = response;
     donorMatch.respondedAt = new Date();
+
+    if (response === 'accepted') {
+      alert.status = 'ongoing';
+    }
+
     await alert.save();
 
     res.json({
@@ -230,13 +260,13 @@ router.put('/:id/fulfill', authenticate, requireInstitution, [
       return res.status(403).json({ message: 'Not authorized to modify this alert' });
     }
 
-    alert.status = 'fulfilled';
+    alert.status = 'complete';
     alert.fulfilledBy = req.body.fulfilledBy || null;
     alert.fulfilledAt = new Date();
     await alert.save();
 
     res.json({
-      message: 'Alert marked as fulfilled',
+      message: 'Alert marked as complete',
       alert
     });
   } catch (error) {
@@ -246,8 +276,8 @@ router.put('/:id/fulfill', authenticate, requireInstitution, [
 });
 
 // Helper function to find and notify matching donors
-async function findAndNotifyDonors(alert, radius = null) {
-  const searchRadius = radius || alert.currentRadius;
+async function findAndNotifyDonors(alert, radius = null, io = null) {
+  let searchRadius = radius || alert.currentRadius;
   const alertCoords = alert.location.coordinates;
 
   if (!alertCoords || !alertCoords.latitude || !alertCoords.longitude) {
@@ -255,49 +285,112 @@ async function findAndNotifyDonors(alert, radius = null) {
     return;
   }
 
-  // Find all active, available donors with matching blood type
+  // Find all active, available donors with matching blood type once,
+  // then automatically expand search radius in 500m steps when needed.
   const donors = await User.find({
     role: 'donor',
     isActive: true,
     'donorProfile.isAvailable': true,
     'donorProfile.bloodType': alert.bloodType,
-    'donorProfile.age': {
-      $gte: alert.ageRequirement.min,
-      $lte: alert.ageRequirement.max
-    }
+    $or: [
+      {
+        'donorProfile.age': {
+          $gte: alert.ageRequirement.min,
+          $lte: alert.ageRequirement.max
+        }
+      },
+      { 'donorProfile.age': { $exists: false } },
+      { 'donorProfile.age': null }
+    ]
   });
 
-  // Filter by distance
-  const nearbyDonors = filterByDistance(donors, alertCoords, searchRadius);
+  const donorsWithCoords = donors.filter((donor) => {
+    const coords = donor.getCoordinates();
+    return coords && Number.isFinite(coords.latitude) && Number.isFinite(coords.longitude);
+  });
 
-  // Filter out donors already notified
+  const donorsWithoutCoords = donors.filter((donor) => {
+    const coords = donor.getCoordinates();
+    return !coords || !Number.isFinite(coords.latitude) || !Number.isFinite(coords.longitude);
+  });
+
   const notifiedDonorIds = alert.matchedDonors.map(m => m.donorId.toString());
-  const newDonors = nearbyDonors.filter(d => !notifiedDonorIds.includes(d._id.toString()));
+  let newDonors = [];
+
+  while (searchRadius <= alert.maxRadius) {
+    const nearbyDonors = filterByDistance(donorsWithCoords, alertCoords, searchRadius);
+    newDonors = nearbyDonors.filter(d => !notifiedDonorIds.includes(d._id.toString()));
+
+    if (newDonors.length > 0) {
+      break;
+    }
+
+    const nextRadius = searchRadius + alert.radiusIncrement;
+    if (nextRadius > alert.maxRadius) {
+      break;
+    }
+
+    searchRadius = nextRadius;
+  }
 
   if (newDonors.length === 0) {
-    console.log(`No new donors found within ${searchRadius}m radius`);
-    return;
+    // Fallback: notify eligible donors even when coordinates are missing.
+    // This avoids silent misses when profile geocoding failed.
+    newDonors = donorsWithoutCoords
+      .map((donor) => donor.toObject())
+      .filter((donor) => !notifiedDonorIds.includes(donor._id.toString()))
+      .map((donor) => ({ ...donor, distance: null }));
+  }
+
+  if (alert.currentRadius !== searchRadius) {
+    alert.currentRadius = searchRadius;
+  }
+
+  if (newDonors.length === 0) {
+    await alert.save();
+    console.log(`No new donors found up to max radius ${alert.maxRadius}m`);
+    return {
+      notified: 0,
+      notificationResult: { success: true, successCount: 0, failureCount: 0 },
+      socketResult: { targeted: 0, deliveredToOnlineSockets: 0 }
+    };
   }
 
   // Add to matched donors
   newDonors.forEach(donor => {
     alert.matchedDonors.push({
       donorId: donor._id,
-      distance: donor.distance,
+      distance: typeof donor.distance === 'number' ? donor.distance : null,
       notifiedAt: new Date(),
       status: 'pending'
     });
   });
 
+    if (!IN_PROGRESS_ALERT_STATUSES.includes(alert.status)) {
+      alert.status = 'ongoing';
+    }
+
   await alert.save();
 
   // Send notifications
   const notificationResult = await sendAlertToDonors(newDonors, alert);
+  const socketResult = emitBloodRequestAlert(io, {
+    entityType: 'alert',
+    _id: alert._id,
+    bloodType: alert.bloodType,
+    quantity: alert.quantity,
+    urgency: alert.urgency,
+    radiusMeters: searchRadius,
+    hospitalName: alert.location?.address || 'Nearby Hospital',
+    location: alert.location,
+    createdAt: alert.createdAt
+  }, newDonors);
   console.log(`Notified ${newDonors.length} donors. Success: ${notificationResult.successCount || 0}`);
 
   return {
     notified: newDonors.length,
-    notificationResult
+    notificationResult,
+    socketResult
   };
 }
 

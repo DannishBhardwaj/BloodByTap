@@ -9,6 +9,7 @@ const ReportEmergency = () => {
   const dispatch = useDispatch()
   const navigate = useNavigate()
   const { loading, error } = useSelector((state) => state.emergencies)
+  const [locationLoading, setLocationLoading] = useState(false)
 
   const [formData, setFormData] = useState({
     bloodType: '',
@@ -27,9 +28,9 @@ const ReportEmergency = () => {
     }
   }, [error])
 
-  // Get user's current location
-  useEffect(() => {
+  const detectCurrentLocation = (silent = false) => {
     if (navigator.geolocation) {
+      setLocationLoading(true)
       navigator.geolocation.getCurrentPosition(
         (position) => {
           setFormData((prev) => ({
@@ -42,13 +43,32 @@ const ReportEmergency = () => {
               },
             },
           }))
+
+          setLocationLoading(false)
+          if (!silent) {
+            toast.success('Current location captured')
+          }
         },
-        (error) => {
-          console.error('Geolocation error:', error)
-          toast.warning('Could not get your location. Please enter address manually.')
+        () => {
+          setLocationLoading(false)
+          if (!silent) {
+            toast.warning('Could not get your location. Please enter address manually.')
+          }
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 10000,
         }
       )
+    } else if (!silent) {
+      toast.error('Geolocation is not supported by your browser')
     }
+  }
+
+  // Get user's current location
+  useEffect(() => {
+    detectCurrentLocation(true)
   }, [])
 
   const handleChange = (e) => {
@@ -161,7 +181,7 @@ const ReportEmergency = () => {
 
           <div className="form-group">
             <label className="form-label">
-              <FaMapMarkerAlt /> Location Address *
+              <FaMapMarkerAlt /> Location Address
             </label>
             <input
               type="text"
@@ -173,12 +193,22 @@ const ReportEmergency = () => {
                   location: { ...formData.location, address: e.target.value },
                 })
               }
-              placeholder="Enter the emergency location address"
-              required
+              placeholder="Optional address (GPS coordinates are preferred)"
             />
             <small className="text-secondary">
-              Your current location will be used if available, but please verify the address
+              GPS coordinates are used immediately if available. Address is optional fallback.
             </small>
+
+            <div style={{ marginTop: '0.5rem' }}>
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => detectCurrentLocation(false)}
+                disabled={locationLoading || loading}
+              >
+                <FaMapMarkerAlt /> {locationLoading ? 'Detecting...' : 'Use Current Location'}
+              </button>
+            </div>
           </div>
 
           {formData.location.coordinates && (

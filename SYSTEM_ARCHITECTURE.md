@@ -1,155 +1,131 @@
-# BloodByTap System Architecture
+# BloodByTap System Architecture (MERN + Socket.io)
 
 ## 1. Architecture Style
+BloodByTap follows a layered client-server architecture with real-time channels.
 
-The system uses a client-server architecture with a clear separation between presentation, API, and data layers.
-
-- Frontend: React SPA (Vite) for user interface and state management
-- Backend: Node.js + Express REST API for business logic and security
-- Database: MongoDB (Mongoose ODM) for persistent storage
-- External Services: Google Geocoding API and Firebase Cloud Messaging (optional)
+- Frontend: React + Redux SPA
+- Backend: Express API + Socket.io gateway
+- Database: MongoDB (Mongoose)
 
 ## 2. High-Level View
 
 ```text
 +-------------------------------+
 | Frontend (React + Redux)      |
-| - Pages, Routing, UI state    |
-| - Axios API client            |
+| - UI + API calls              |
+| - Socket.io client connection |
 +---------------+---------------+
                 |
-                | HTTPS / JSON
+                | HTTPS (REST)
                 v
 +-------------------------------+
-| Backend (Express API)         |
-| - Auth, Users, Alerts,        |
-|   Emergencies routes          |
-| - Middleware (JWT, Roles)     |
-| - Services (Notifications)    |
-| - Utils (Geocoding, Distance) |
+| Backend (Express + JWT)       |
+| - Auth routes                 |
+| - Blood request routes        |
+| - Donor geospatial controller |
 +---------------+---------------+
                 |
                 | Mongoose
                 v
 +-------------------------------+
 | MongoDB                       |
-| - User, Alert, Emergency      |
+| - User                        |
+| - Donor (GeoJSON + 2dsphere)  |
+| - BloodRequest (GeoJSON)      |
 +-------------------------------+
 
-External integrations:
-- Google Maps Geocoding API (address -> coordinates)
-- Firebase Admin / FCM (push notifications)
+Real-time path:
+Frontend Socket <-> Socket.io server <-> targeted donor rooms
 ```
 
-## 3. Backend Layered Design
+## 3. Backend Layers
 
-### 3.1 API Layer (Routes)
+### API Layer
+- `/api/auth/*` for signup/signin/JWT lifecycle
+- `/api/blood-requests/*` for request creation/listing and donor search
+- `/api/request-blood` direct protected alias endpoint
 
-- auth routes: registration, login, current user
-- user routes: profile, availability, FCM token, nearby donors
-- alert routes: create alert, expand radius, donor responses, fulfill
-- emergency routes: report, acknowledge, handle
+### Middleware Layer
+- `authMiddleware`: JWT verification and user context
+- Role guards: `requireInstitution`, `requireDonor`
 
-### 3.2 Middleware Layer
+### Domain/Data Layer
+- `User`: account + role profile metadata
+- `Donor`: donor availability, blood type, GeoJSON location
+- `BloodRequest`: hospital request, radius, status, matched donors
 
-- authenticate: validates JWT and attaches user context
-- role guards: donor-only and institution-only authorization
+### Service Layer
+- `socketService`: socket authentication, donor socket room tracking, selective event broadcast
+- `donorSyncService`: keeps `Donor` collection synced from donor profile updates
 
-### 3.3 Domain/Data Layer
+### Controller Layer
+- `donorController.findNearbyDonors`: geospatial `$near` query inside radius
+- `bloodRequestController.createBloodRequest`: persists request, computes nearby donors, emits real-time events
 
-- User model: shared identity with donorProfile and institutionProfile
-- Alert model: institution blood request lifecycle
-- Emergency model: urgent event lifecycle and institution handling
+## 4. Geo-Spatial Data Model
 
-### 3.4 Service Layer
+Donor and BloodRequest use:
 
-- notification service: wraps Firebase Admin SDK for push delivery
+```js
+location: {
+  type: { type: String, enum: ['Point'], required: true },
+  coordinates: { type: [Number], required: true } // [longitude, latitude]
+}
+```
 
-### 3.5 Utility Layer
+Indexes:
+- `Donor.location`: `2dsphere`
+- `BloodRequest.location`: `2dsphere`
 
-- geocoding utility: geocode and reverse geocode using Google API
-- location utility: distance calculations and radius filtering via geolib
+## 5. Runtime Flows
 
-## 4. Frontend Architecture
+### Signup/Login
+1. Client posts credentials
+2. API validates and hashes password with bcrypt
+3. JWT token is generated and returned
+4. Client uses token for API and socket authentication
 
-### 4.1 Application Structure
+### Request Blood (Institution)
+1. Institution UI captures current device coordinates (GPS-first)
+2. Institution submits `/request-blood`
+3. API saves `BloodRequest`
+4. API runs MongoDB `$near` donor query within request radius
+5. API records matched donors
+6. Socket.io emits `new-emergency-alert` only to connected in-range donors
 
-- App routes for public and protected pages
-- Layout and ProtectedRoute components for shell and access control
-- Feature pages for donor and institution workflows
+### Donor Discovery Controller
+`findNearbyDonors` supports institution-side geospatial search using query params:
+- latitude
+- longitude
+- radius
+- bloodType
 
-### 4.2 State Management
+## 6. Security and Reliability
+- JWT required for protected routes
+- Role checks prevent unauthorized blood request creation
+- Password hashing with bcrypt
+- Input validation with express-validator
+- Socket handshake validates JWT before connection acceptance
 
-Redux Toolkit is used with feature slices:
+## 7. Configuration
+Required variables:
+- `MONGODB_URI`
+- `JWT_SECRET`
 
-- authSlice: auth state, register/login/getCurrentUser, token persistence
-- userSlice: profile and donor availability
-- alertSlice: alert creation/list/details/actions
-- emergencySlice: emergency reporting and handling
+Optional:
+- `JWT_EXPIRE`
+- `GEOCODING_BASE_URL`
+- `GEOCODING_USER_AGENT`
+- `GEOCODING_CONTACT_EMAIL`
+- `GEOCODING_MIN_INTERVAL_MS`
+- `GEOCODING_MAX_RETRIES`
+- `GEOCODING_TIMEOUT_MS`
+- `GEOCODING_CACHE_TTL_MS`
+- `GEOCODING_CACHE_MAX_SIZE`
+- `PORT`
 
-### 4.3 API Access Layer
-
-- Central Axios instance with base URL from environment
-- Request interceptor for Authorization header
-- Response interceptor for auth failure handling
-
-## 5. Core Runtime Flows
-
-### 5.1 Registration/Login Flow
-
-1. Frontend submits credentials/profile to auth endpoints.
-2. Backend validates request payload.
-3. Backend checks existing user and hashes password.
-4. Backend stores user in MongoDB.
-5. Backend returns JWT + basic user identity.
-6. Frontend stores token/user and updates authenticated state.
-
-### 5.2 Alert Flow (Institution -> Donor)
-
-1. Institution creates an alert with blood details and location.
-2. Backend resolves coordinates if needed.
-3. Backend finds candidate donors by blood type, age, availability, and distance.
-4. Backend persists matched donor records in alert.
-5. Notification service attempts to push notify matching donors.
-6. Donors respond; institution can fulfill or expand radius.
-
-### 5.3 Emergency Flow (User -> Institution)
-
-1. User reports emergency with location and urgency.
-2. Backend finds nearby institutions.
-3. Backend records notified institutions.
-4. Institutions acknowledge and later mark as handled.
-
-## 6. Data and Security Considerations
-
-- Passwords are hashed with bcrypt before persistence.
-- JWT is required for protected endpoints.
-- Role-based authorization protects donor/institution actions.
-- Input validation is performed on route boundaries.
-- Sensitive config is externalized through environment variables.
-
-## 7. Deployment and Environment Model
-
-### 7.1 Frontend
-
-- Runs on Vite dev server during development
-- Uses environment variable for API base URL
-
-### 7.2 Backend
-
-- Runs as Node/Express process (nodemon in development)
-- Requires MongoDB connectivity through MONGODB_URI
-
-### 7.3 Required Configuration
-
-- MONGODB_URI
-- JWT_SECRET and JWT_EXPIRE
-- Optional for notifications: FIREBASE_PROJECT_ID, FIREBASE_PRIVATE_KEY, FIREBASE_CLIENT_EMAIL
-- Optional for geocoding: GOOGLE_MAPS_API_KEY
-
-## 8. Current Observations for This Project
-
-- Registration and authentication depend on MongoDB and JWT, not Firebase DB.
-- Firebase is used for push notifications only.
-- If Firebase credentials are missing or invalid, API can still run, but notifications are disabled.
-- If MongoDB is unavailable, backend startup fails and API endpoints cannot be served.
+## 8. Migration Status
+- Firebase Cloud Messaging removed from primary runtime flow
+- Firestore/listener-based alerting replaced by Socket.io room-targeted alerts
+- Geospatial filtering now handled natively in MongoDB/Mongoose
+- Client-side emergency location collection is GPS-first, with geocoding retained as fallback only
